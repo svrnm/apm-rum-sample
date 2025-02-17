@@ -275,7 +275,7 @@ docker compose restart frontproxy
 
 In Grafana Cloud you will now see traces that start in your frontend service (e.g. `app-rum-sample`) and continue in `frontproxy`.
 
-## Instrumenting the checkout service
+### Instrumenting the checkout service
 
 For the [checkout](./checkout/) service we want to choose a "do not touch my image" approach. This means we will neither edit the application, nor the `Dockerfile` from which the container is generated. This is useful, if you are provided with the container image from a different team or a 3rd party.
 
@@ -375,3 +375,13 @@ Finally, add the following to the `compose.override.yaml` that we have created i
       - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://alloy:4318/v1/logs
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 ```
+
+## Step 4: Further improvements
+
+- Put credentials in `.env` file
+- Add processors for different things
+- Instrument frontend
+
+## Step 5: Using beyla
+
+
