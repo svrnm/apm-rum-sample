@@ -11,6 +11,7 @@ services:
     command: ["npm", "install", "@opentelemetry/auto-instrumentations-node", "@opentelemetry/instrumentation-winston", "@opentelemetry/winston-transport"]
     restart: "no"
 
+
   checkout:
     depends_on:
       init-npm:
@@ -21,13 +22,16 @@ services:
       - OTEL_SERVICE_NAME=checkout
       - OTEL_LOGS_EXPORTER=otlp
       - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
       - OTEL_NODE_RESOURCE_DETECTORS=env,host,os
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
     volumes:
       - npm_modules:/mnt/node_modules
 
   products:
     environment:
+      - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
       - OTEL_SERVICE_NAME=products
       - OTEL_LOGS_EXPORTER=otlp
       - OTEL_TRACES_EXPORTER=otlp
@@ -36,10 +40,7 @@ services:
       - OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://alloy:4318/v1/metrics
       - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://alloy:4318/v1/logs
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-    volumes:
-      - python_modules:/mnt/
-    entrypoint: ["opentelemetry-instrument", "python3"]
 
 volumes:
   npm_modules:
-  python_modules:
+

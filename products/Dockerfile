@@ -13,5 +13,5 @@ COPY . /app
 
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 CMD [ "curl - v localhost:8002/health" ]
 
-ENTRYPOINT ["python3"]
+ENTRYPOINT ["opentelemetry-instrument", "python3"]
 CMD ["app.py"]

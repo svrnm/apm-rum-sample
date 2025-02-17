@@ -1,2 +1,17 @@
 flask
 redis
+opentelemetry-exporter-otlp-proto-http
+opentelemetry-distro
+opentelemetry-instrumentation-asyncio
+opentelemetry-instrumentation-dbapi
+opentelemetry-instrumentation-logging
+opentelemetry-instrumentation-sqlite3
+opentelemetry-instrumentation-threading
+opentelemetry-instrumentation-urllib
+opentelemetry-instrumentation-wsgi
+opentelemetry-instrumentation-click
+opentelemetry-instrumentation-flask
+opentelemetry-instrumentation-jinja2
+opentelemetry-instrumentation-redis
+opentelemetry-instrumentation-requests
+opentelemetry-instrumentation-urllib3

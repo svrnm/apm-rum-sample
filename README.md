@@ -4,6 +4,15 @@ This repository is used for training purposes. It contains a set of really small
 
 The goal is to enable everyone to understand the value of APM / Application Observability and RUM / Frontend Observability in Grafana Cloud and to exercise on a small scale what needs to be done to properly set up users for success.
 
+Throughout this tutorial you will:
+
+- Enable RUM for the [`frontend`](./frontend) service by adding Grafana Fargo
+- Send your telemetry to an instance of [`alloy`](./alloy/)
+- Instrument the server-side services [`frontproxy`](./frontproxy/), [`checkout`](./checkout/) and [`products`](./products/) using OpenTelemetry:
+  - For the `frontproxy` we will use the NGINX module [nginx-otel](https://github.com/nginxinc/nginx-otel)
+  - For the `checkout` service we will use a "don't touch my image" approach to inject  [OpenTelemetry JavaScript zero-code instrumentation](https://opentelemetry.io/docs/zero-code/js/)
+  - For the `products` service we will use the [Python zero-code instrumentation](https://opentelemetry.io/docs/zero-code/python/) 
+
 ## Prerequisites
 
 - a local machine
@@ -13,7 +22,7 @@ The goal is to enable everyone to understand the value of APM / Application Obse
 
 ## How to use this repository
 
-1. clone the repository locally
+1. clone the `main` branch of this repository locally
 2. pull & build the docker images needed for this exercise (`docker compose build`)
 3. start the app (`docker compose up -d`)
 4. browse `http://localhost:8000/`
@@ -312,11 +321,57 @@ volumes:
 
 ### Instrumenting the products service
 
-Similarly to the `checkout` service we want to add OpenTelemetry to the `products` service without modifying the
-application or Dockerfile. 
+To instrument the [`products`](./products/) service, we need to apply the following changes:
 
-Update the `compose.override.yaml` once again by appending the following:
+1. Update the [`requirements.txt`](./products/requirements.txt) to include all OpenTelemetry dependencies
+2. Update the [`Dockerfile`](./products/Dockerfile) to run `opentelemetry-instrument` to automatically instrument the application
+3. Set environment variables in `compose.override.yaml` to configure the OpenTelemetry SDK.
+
+For step 1 copy the following and paste it to the end of the `requirements.txt`:
+
+```
+opentelemetry-exporter-otlp-proto-http
+opentelemetry-distro
+opentelemetry-instrumentation-asyncio
+opentelemetry-instrumentation-dbapi
+opentelemetry-instrumentation-logging
+opentelemetry-instrumentation-sqlite3
+opentelemetry-instrumentation-threading
+opentelemetry-instrumentation-urllib
+opentelemetry-instrumentation-wsgi
+opentelemetry-instrumentation-click
+opentelemetry-instrumentation-flask
+opentelemetry-instrumentation-jinja2
+opentelemetry-instrumentation-redis
+opentelemetry-instrumentation-requests
+opentelemetry-instrumentation-urllib3
+```
+
+Make sure you do not overwrite the existing requirements (`flask` and `redis`). 
+
+> [!NOTE]
+>
+> By installing `opentelemetry-exporter-otlp-proto-http` instead of `opentelemetry-exporter-otlp` we skip the installation of gRPC which requires a C++ compiler to be present on the used container image.
+
+
+Next edit the `Dockerfile` and update the `ENTRYPOINT`:
+
+```Dockerfile
+ENTRYPOINT ["opentelemetry-instrument", "python3"]
+```
+
+Finally, add the following to the `compose.override.yaml` that we have created in the previous step:
 
 ```yaml
-
+  products:
+    environment:
+      - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true # Logging is still in development so we have to turn it on with this flag!
+      - OTEL_SERVICE_NAME=products
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://alloy:4318/v1/traces
+      - OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://alloy:4318/v1/metrics
+      - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://alloy:4318/v1/logs
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 ```

@@ -30,20 +30,47 @@ faro.receiver "default" {
     }
 }
 
+otelcol.processor.transform "faro_helper" {
+
+  log_statements {
+    context = "log"
+    statements = [
+	  `merge_maps(attributes, ParseKeyValue(body.string), "upsert")`,
+	  `set(resource.attributes["service.name"], attributes["app_name"])`,
+	  `set(resource.attributes["service.version"], attributes["app_version"])`,
+	  `set(resource.attributes["deployment.environment.name"], attributes["app_environment"])`,
+
+	  // deployment.environment.name
+    ]
+  }
+
+	output {
+		metrics = [otelcol.exporter.otlphttp.grafana_cloud.input]
+		logs    = [otelcol.exporter.otlphttp.grafana_cloud.input, otelcol.exporter.debug.debugger.input]
+		traces  = [otelcol.exporter.otlphttp.grafana_cloud.input]
+	}
+}
+
+otelcol.exporter.debug "debugger" { 
+	verbosity = "detailed"
+}
+
+
 otelcol.receiver.loki "l2o" {
   output {
-    logs = [otelcol.exporter.otlphttp.grafana_cloud.input]
+    logs = [otelcol.processor.transform.faro_helper.input]
   }
 }
 
+
 otelcol.exporter.otlphttp "grafana_cloud" {
 	client {
-		endpoint = "https://otlp-gateway-prod-eu-west-2.grafana.net/otlp"
+		endpoint = sys.env("GRAFANA_CLOUD_OTLP_ENDPOINT") + "/otlp"
 		auth     = otelcol.auth.basic.grafana_cloud.handler
 	}
 }
 
 otelcol.auth.basic "grafana_cloud" {
-	username = ""
-	password = ""
+	username = sys.env("GRAFANA_CLOUD_USERNAME")
+	password = sys.env("GRAFANA_CLOUD_PASSWORD")
 }  
