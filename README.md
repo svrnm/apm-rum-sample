@@ -208,12 +208,12 @@ When you have setup your application this way logs and traces will flow into you
 ![](./2-logs.png)
 ![](./2-traces.png)
 
-> [!HINT]
+> [!NOTE]
 >
-> **Question**: It looks like this way it is not possible to populate data into "Frontend Observability". If
+> **Question 1**: It looks like this way it is not possible to populate data into "Frontend Observability". If
 > the `https://faro-collector-prod-eu-west-2.grafana.net/collect/<key>` endpoint is used as sink for a loki
 > writer and OTLP traces, the loki writer reports issues with missing `X-Faro-Session-Id` header. There was no
-> obvious way to reconfigure alloy to send those headers accordingly.
+> obvious way to reconfigure alloy to send those headers accordingly. Do I miss something?
 
 ## Step 3: Add backend telemetry
 
@@ -602,3 +602,12 @@ $ docker compose logs beyla-products
 beyla-products-1  | 2025-02-18 09:05:52.2189552 (525.208µs[525.208µs]) RedisClient 0 CLIENT CLIENT SETINFO LIB-NAME redis-py  [172.20.0.6 as 172.20.0.6:59680]->[172.20.0.2 as 172.20.0.2:6379] size:0B svc=[products python] traceparent=[00-e520228cbf6ebef3b8680448299246de-428b4b3f51abc537[401bd725ea59895b]-00]
 ```
 
+If these kinds of log lines show up for all your services, you can check the Traces few in the Grafana Cloud UI to see your telemetry being reported via beyla.
+
+![A trace view from Grafana Cloud UI that shows that beyla has been used in the resource attributes](./beyla-trace.png)
+
+> [!NOTE]
+>
+> **Question 2**: It seems that correlation across services only works if I turn on `BEYLA_BPF_ENABLE_CONTEXT_PROPAGATION=true`. Based on the beyla docs it should work (at least for some services) without it, e.g. the python and Node.JS service. I wonder if I missed a crucial step or misconfigured something?
+>
+> **Question 3**: It looks like that I need a `beyla` container per service, which makes sense based on the way how it is configured, and I also found [this issue](https://github.com/grafana/beyla/issues/336), but maybe something has changed, and this is possible these days?
