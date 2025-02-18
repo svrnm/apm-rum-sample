@@ -78,20 +78,6 @@ initializeFaro({
     environment: "production",
   },
 
-  plugins: [
-    // other plugins...
-    new FaroSourceMapUploaderPlugin({
-      appName: "undefined",
-      endpoint: "https://faro-api-prod-eu-west-2.grafana.net/faro/api/v1",
-      appId: "undefined",
-      stackId: "1155883",
-      // instructions on how to obtain your API key are in the documentation
-      // https://grafana.com/docs/grafana-cloud/monitor-applications/frontend-observability/sourcemap-upload-plugins/#obtain-an-api-key
-      apiKey: "$your-api-key",
-      gzipContents: true,
-    }),
-  ],
-
   instrumentations: [
     // Mandatory, omits default instrumentations otherwise.
     ...getWebInstrumentations(),
@@ -134,7 +120,7 @@ After a while you should see data flowing in, like in the screenshot below
 
 ## Step 2: Add alloy into the mix
 
-In the next step, we want to send the telemetry from our application to an alloy instance first, before sending it to Grafana Cloud. This can be useful if you clients can not access Grafana Cloud, e.g. in a restricted environment.
+In the next step, we want to send the telemetry from our application to an [alloy](https://grafana.com/docs/alloy/latest/) instance first, before sending it to Grafana Cloud. This can be useful if you clients can not access Grafana Cloud, e.g. in a restricted environment.
 
 As a first step, go to `https://acme.grafana.net/connections/add-new-connection/open-telemetry` (replace `acme` with
 the name of your Grafana Cloud instance), and create a new token with name `apm-rum-sample`. Click on `Create token`
@@ -164,6 +150,7 @@ faro.receiver "default" {
     server {
         listen_address = "0.0.0.0"
         cors_allowed_origins = ["http://frontproxy:8000"]
+        // Propagate incoming connection metadata to downstream consumers.
         include_metadata = true
     }
 
@@ -173,6 +160,8 @@ faro.receiver "default" {
     }
 }
 
+// use this intermediate receiver to convert loki data to otlp data
+// since the faro receiver only supports loki format as log output
 otelcol.receiver.loki "l2o" {
   output {
     logs = [otelcol.exporter.otlphttp.grafana_cloud.input]
@@ -268,7 +257,6 @@ http {
 }
 ```
 
-
 > [!NOTE]
 >
 > To enable correlation between frontend telemetry and backend telemetry the following line is crucial: 
@@ -279,8 +267,7 @@ http {
 >
 > Faro will pick up that additional header to set the appropriate trace ID and parent span ID.
 
-This enables OpenTelemetry based tracing in the `frontproxy`. It also sets the service name to `frontproxy` and adds 
-a config for the `Server-Timing` header to create correlation between frontend and backend.
+This enables OpenTelemetry based tracing in the `frontproxy`.
 
 Restart the `frontproxy`:
 
