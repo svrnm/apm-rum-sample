@@ -51,41 +51,6 @@ otelcol.processor.transform "faro_helper" {
 	}
 }
 
-otelcol.connector.spanmetrics "default" {
-  // Since a default is not provided, the http.status_code dimension will be omitted
-  // if the span does not contain http.status_code.
-  dimension {
-    name = "http.status_code"
-  }
-
-  // If the span is missing http.method, the connector will insert
-  // the http.method dimension with value 'GET'.
-  dimension {
-    name = "http.method"
-    default = "GET"
-  }
-
-  dimensions_cache_size = 333
-
-  aggregation_temporality = "DELTA"
-
-  histogram {
-    unit = "s"
-    explicit {
-      buckets = ["333ms", "777s", "999h"]
-    }
-  }
-
-  // The period on which all metrics (whose dimension keys remain in cache) will be emitted.
-  metrics_flush_interval = "33s"
-
-  namespace = "test.namespace"
-
-  output {
-    metrics = [otelcol.exporter.otlphttp.grafana_cloud.input]
-  }
-}
-
 otelcol.connector.host_info "default" {
   // https://grafana.com/docs/alloy/latest/reference/components/otelcol.connector.host_info/
   host_identifiers = ["host.name"]

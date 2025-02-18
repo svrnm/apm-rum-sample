@@ -1,0 +1,46 @@
+services:
+  frontproxy:
+    depends_on:
+      - checkout
+  
+  init-npm:
+    image: node:20-alpine
+    volumes:
+      - npm_modules:/app/node_modules
+    working_dir: /app
+    command: ["npm", "install", "@opentelemetry/auto-instrumentations-node", "@opentelemetry/instrumentation-winston", "@opentelemetry/winston-transport"]
+    restart: "no"
+
+
+  checkout:
+    depends_on:
+      init-npm:
+        condition: service_completed_successfully
+    environment:
+      - NODE_PATH=/mnt/node_modules
+      - NODE_OPTIONS=-r "@opentelemetry/auto-instrumentations-node/register"
+      - OTEL_SERVICE_NAME=checkout
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_NODE_RESOURCE_DETECTORS=env,host,os
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+    volumes:
+      - npm_modules:/mnt/node_modules
+
+  products:
+    environment:
+      - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
+      - OTEL_SERVICE_NAME=products
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://alloy:4318/v1/traces
+      - OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://alloy:4318/v1/metrics
+      - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://alloy:4318/v1/logs
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+
+volumes:
+  npm_modules:
+

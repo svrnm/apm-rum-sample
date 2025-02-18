@@ -4,6 +4,8 @@ This repository is used for training purposes. It contains a set of really small
 
 The goal is to enable everyone to understand the value of APM / Application Observability and RUM / Frontend Observability in Grafana Cloud and to exercise on a small scale what needs to be done to properly set up users for success.
 
+## Overview
+
 Throughout this tutorial you will:
 
 - Enable RUM for the [`frontend`](./frontend) service by adding Grafana Fargo
@@ -12,6 +14,8 @@ Throughout this tutorial you will:
   - For the `frontproxy` we will use the NGINX module [nginx-otel](https://github.com/nginxinc/nginx-otel)
   - For the `checkout` service we will use a "don't touch my image" approach to inject  [OpenTelemetry JavaScript zero-code instrumentation](https://opentelemetry.io/docs/zero-code/js/)
   - For the `products` service we will use the [Python zero-code instrumentation](https://opentelemetry.io/docs/zero-code/python/) 
+- Improve some configuration to increase security and to transform some telemetry
+- Use Grafana beyla as an alternative for instrumenting the services
 
 ## Prerequisites
 
@@ -38,6 +42,12 @@ Name your application `app-rum-sample` and add the following domain to the allow
 
 - `http://frontproxy:8000`
 - `http://localhost:8000`
+
+
+> [!NOTE]
+>
+> "_Cross-Origin Resource Sharing (CORS) is an HTTP-header based mechanism that allows a server to indicate any origins (domain, scheme, or port) other than its own from which a browser should permit loading resources_" (source: [MDN](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS)). By adding the two domains above we can access the sample app locally and telemetry can be send to Grafana Cloud, and the load generator can access the sample app via the container network internal hostname `frontproxy` and telemetry is also send to Grafana Cloud. 
+
 
 Click next, and as the next step requests, install the faro dependencies:
 
@@ -100,12 +110,6 @@ initializeFaro({
 ```
 
 Make sure that you replace `123456789abcdef123456789abcdef0` with your real application key.
-
-Optionally, you can also configure your application to upload source maps for de-obfuscated stack traces:
-
-```
-npm install --save-dev @grafana/faro-webpack-plugin
-```
 
 Click on `Complete`.
 
@@ -264,6 +268,17 @@ http {
 }
 ```
 
+
+> [!NOTE]
+>
+> To enable correlation between frontend telemetry and backend telemetry the following line is crucial: 
+>
+> ```
+> add_header server-timing "traceparent;desc:\"00-$otel_trace_id-$otel_span_id-0$otel_parent_sampled\"";
+> ```
+>
+> Faro will pick up that additional header to set the appropriate trace ID and parent span ID.
+
 This enables OpenTelemetry based tracing in the `frontproxy`. It also sets the service name to `frontproxy` and adds 
 a config for the `Server-Timing` header to create correlation between frontend and backend.
 
@@ -300,12 +315,16 @@ services:
       init-npm:
         condition: service_completed_successfully
     environment:
+      # The following environment variable ensures that the additional packages can be found on import:
       - NODE_PATH=/mnt/node_modules
+      # This injects the auto-instrumentations-node/register as an additional dependency into the app:
       - NODE_OPTIONS=-r "@opentelemetry/auto-instrumentations-node/register"
       - OTEL_SERVICE_NAME=checkout
       - OTEL_LOGS_EXPORTER=otlp
       - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
       - OTEL_NODE_RESOURCE_DETECTORS=env,host,os
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
     volumes:
       - npm_modules:/mnt/node_modules
@@ -351,6 +370,20 @@ Make sure you do not overwrite the existing requirements (`flask` and `redis`).
 
 > [!NOTE]
 >
+> To find out which dependencies you need, you can install `opentelemetry-distro` first and then run `opentelemetry-bootstrap -a requirements`, e.g:
+>
+> ```
+> cd products
+> python3 -m venv .env
+> source .venv/bin/activate
+> pip3 install -r requirements.txt
+> pip3 install opentelemetry-distro
+> opentelemetry-bootstrap -a requirements
+>
+> The returned list is a collection of instrumentation libraries for all the dependencies used in the application.
+
+> [!NOTE]
+>
 > By installing `opentelemetry-exporter-otlp-proto-http` instead of `opentelemetry-exporter-otlp` we skip the installation of gRPC which requires a C++ compiler to be present on the used container image.
 
 
@@ -376,12 +409,196 @@ Finally, add the following to the `compose.override.yaml` that we have created i
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 ```
 
+With this we have all backend services instrumented. If you take another look in your Grafana Cloud instance
+you should see traces flowing through all your backend services
+
 ## Step 4: Further improvements
 
-- Put credentials in `.env` file
-- Add processors for different things
-- Instrument frontend
+There are a few additional steps we can take to optimize our configuration
+
+- Put credentials in `.env` file: this way you ensure that your credentials are stored separately from configuration files, and if you push your code to a public repository they are not leaked by accident.
+- Add connectors and processors to alloy: to generate additional metrics and to enable Application Observability in Grafana Cloud we add a host_info connector. To optimize the data returned by faro we add a transformprocessor that extracts fields from the log body.
+- Instrument frontend Node.JS application and load generator: both these components have not yet been instrumented. We can add OpenTelemetry to them as well!
+
+### Put credentials in `.env` file
+
+To remove your credentials from `alloy/config.alloy` create a `.env` file in the root folder of this repository with
+the following content:
+
+```env
+# Your grafana cloud username
+GRAFANA_CLOUD_USERNAME=<USERNAME>
+# Your grafana cloud password
+GRAFANA_CLOUD_PASSWORD=<PASSWORD>
+# Your grafana cloud endpoint
+GRAFANA_CLOUD_OTLP_ENDPOINT=https://otlp-gateway-prod-<CLOUD_REGION>.grafana.net
+```
+
+Update the three fields with your individual values, next update the `alloy/config.alloy`:
+
+```
+otelcol.exporter.otlphttp "grafana_cloud" {
+	client {
+		endpoint = sys.env("GRAFANA_CLOUD_OTLP_ENDPOINT") + "/otlp"
+		auth     = otelcol.auth.basic.grafana_cloud.handler
+	}
+}
+
+otelcol.auth.basic "grafana_cloud" {
+	username = sys.env("GRAFANA_CLOUD_USERNAME")
+	password = sys.env("GRAFANA_CLOUD_PASSWORD")
+}  
+```
+
+Additionally, you need to configure your `compose.yaml` such that these environment variables are propagated into the container:
+
+```
+  alloy:
+    image: grafana/alloy
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy
+    ports:
+      - '12345:12345'
+    environment:
+      - GRAFANA_CLOUD_OTLP_ENDPOINT
+      - GRAFANA_CLOUD_USERNAME
+      - GRAFANA_CLOUD_PASSWORD
+```
+
+If you now restart your alloy container it will pick up the environment variables for credentials and the OTLP endpoint.
+
+Finally, before you commit your code, make sure to add `.env` to your `.gitignore` file!
+
+### Add connectors and processors to alloy
+
+With alloy between your services and your telemetry backend you can easily add connectors and processors that
+create additional telemetry or augment telemetry.
+
+As a simple starting point, you can add the `host_info` connector, which is required by Application Observability
+for usage metering:
+
+```
+otelcol.connector.host_info "default" {
+  host_identifiers = ["host.name"]
+
+  output {
+    metrics = [otelcol.exporter.otlphttp.grafana_cloud.input]
+  }
+}
+```
+
+Next, we want to extract enrich logs received by faro by convert the key-value based body into attributes and resource attributes:
+
+```
+otelcol.processor.transform "faro_helper" {
+
+  log_statements {
+    context = "log"
+    statements = [
+    // the following line will lift key value pairs from the body string to attributes
+	  `merge_maps(attributes, ParseKeyValue(body.string), "upsert")`,
+    // the following three lines will take some attributes and convert them into otel standard attributes
+	  `set(resource.attributes["service.name"], attributes["app_name"])`,
+	  `set(resource.attributes["service.version"], attributes["app_version"])`,
+	  `set(resource.attributes["deployment.environment.name"], attributes["app_environment"])`,
+
+	  // deployment.environment.name
+    ]
+  }
+
+	output {
+		metrics = [otelcol.exporter.otlphttp.grafana_cloud.input, otelcol.connector.spanmetrics.default.input]
+		logs    = [otelcol.exporter.otlphttp.grafana_cloud.input, otelcol.exporter.debug.debugger.input]
+		traces  = [otelcol.exporter.otlphttp.grafana_cloud.input]
+	}
+}
+```
+
+If you compare your logs view in Grafana Cloud before and after this change, you will see that logs for the
+react frontend are no longer flowing in `unknown_service` but into `app-rum-sample`.
+
 
 ## Step 5: Using beyla
 
+Before we can instrument services with beyla, we need to disable the existing OpenTelemetry instrumentation. 
+For this, rename the `compose.override.yaml` to `compose.override.otel.yaml`. Next update the `products/Dockerfile`
+and remove the `opentelemetry-instrument` statement:
+
+```Dockerfile
+# ENTRYPOINT ["opentelemetry-instrument", "python3"]
+ENTRYPOINT ["python3"]
+```
+
+Similarly, disable the NGINX module in `frontproxy/nginx.con`:
+
+```nginx
+otel_trace off;
+```
+
+We will keep the faro instrumentation for the frontend. Next create a new `compose.override.yaml` and add one
+beyla container for each service you want to instrument:
+
+```yaml
+services:
+  beyla-checkout:
+    image: grafana/beyla:latest
+    pid: "service:checkout"
+    environment:
+      - BEYLA_SERVICE_NAME=checkout
+      - BEYLA_OPEN_PORT=8003
+      - BEYLA_TRACE_PRINTER=text
+      - BEYLA_BPF_ENABLE_CONTEXT_PROPAGATION=true
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+    privileged: true
+  beyla-products:
+    image: grafana/beyla:latest
+    pid: "service:products"
+    environment:
+      - BEYLA_SERVICE_NAME=products
+      - BEYLA_OPEN_PORT=8002
+      - BEYLA_TRACE_PRINTER=text
+      - BEYLA_BPF_ENABLE_CONTEXT_PROPAGATION=true
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+    privileged: true
+  beyla-redis:
+    image: grafana/beyla:latest
+    pid: "service:redis"
+    environment:
+      - BEYLA_SERVICE_NAME=redis
+      - BEYLA_OPEN_PORT=6379
+      - BEYLA_TRACE_PRINTER=text
+      - BEYLA_BPF_ENABLE_CONTEXT_PROPAGATION=true
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+    privileged: true
+
+  beyla-frontproxy:
+    image: grafana/beyla:latest
+    pid: "service:frontproxy"
+    environment:
+      - BEYLA_SERVICE_NAME=frontproxy
+      - BEYLA_OPEN_PORT=8000
+      - BEYLA_TRACE_PRINTER=text
+      - BEYLA_BPF_ENABLE_CONTEXT_PROPAGATION=true
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+    privileged: true
+```
+
+With this you can bring up your compose environment once again:
+
+```
+docker compose up --build --force-recreate
+```
+
+You can verify if all works as expected by checking the logs of one of the beyla containers:
+
+```
+$ docker compose logs beyla-products
+...
+beyla-products-1  | 2025-02-18 09:05:52.2189552 (525.208µs[525.208µs]) RedisClient 0 CLIENT CLIENT SETINFO LIB-NAME redis-py  [172.20.0.6 as 172.20.0.6:59680]->[172.20.0.2 as 172.20.0.2:6379] size:0B svc=[products python] traceparent=[00-e520228cbf6ebef3b8680448299246de-428b4b3f51abc537[401bd725ea59895b]-00]
+```
 
