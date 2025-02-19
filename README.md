@@ -12,10 +12,13 @@ Throughout this tutorial you will:
 - Send your telemetry to an instance of [`alloy`](./alloy/)
 - Instrument the server-side services [`frontproxy`](./frontproxy/), [`checkout`](./checkout/) and [`products`](./products/) using OpenTelemetry:
   - For the `frontproxy` we will use the NGINX module [nginx-otel](https://github.com/nginxinc/nginx-otel)
-  - For the `checkout` service we will use a "don't touch my image" approach to inject  [OpenTelemetry JavaScript zero-code instrumentation](https://opentelemetry.io/docs/zero-code/js/)
+  - For the `frontend` and `checkout` services we will use a "don't touch my image" approach to inject  [OpenTelemetry JavaScript zero-code instrumentation](https://opentelemetry.io/docs/zero-code/js/)
   - For the `products` service we will use the [Python zero-code instrumentation](https://opentelemetry.io/docs/zero-code/python/) 
 - Improve some configuration to increase security and to transform some telemetry
-- Use Grafana beyla as an alternative for instrumenting the services
+
+When you have instrumented your service and telemetry is stored in Grafana Cloud, you will also learn by example how you can troubleshoot an issue using the data. 
+
+Finally, as a bonus you can learn how to use Grafana beyla as an alternative for instrumenting the services.
 
 ## Prerequisites
 
@@ -325,6 +328,30 @@ volumes:
 > The start up time for `checkout` has increased, so `frontproxy` may start before it, so we also need to make
 > `checkout` a dependency for `frontproxy` to start.
 
+
+### Instrumenting the frontend service
+
+We can use the same approach for the [`frontend`](./frontend/) service. The `init-npm` can be reused, such that the following update to the `compose.override.yaml` is enough:
+
+```
+  frontend:
+    depends_on:
+      init-npm:
+        condition: service_completed_successfully
+    environment:
+      - NODE_PATH=/mnt/node_modules
+      - NODE_OPTIONS=-r "@opentelemetry/auto-instrumentations-node/register"
+      - OTEL_SERVICE_NAME=frontend
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_NODE_RESOURCE_DETECTORS=env,host,os
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+    volumes:
+      - npm_modules:/mnt/node_modules
+```
+
 ### Instrumenting the products service
 
 To instrument the [`products`](./products/) service, we need to apply the following changes:
@@ -545,7 +572,25 @@ adding the following additional parameters and environment variables to the `com
     - K6_OTEL_HTTP_EXPORTER_INSECURE=true
 ```
 
-## Step 5: Using beyla
+## Step 5: Data analysis
+
+The purpose of instrumenting your services is to get insights into their performance, and if there is any degradation impacting end users, the telemetry collected will help you to identify the root cause quickly and
+remediate the issue.
+
+A good starting point for exploring your services is the "Service Map" provided by Application Observability.
+In your Grafana Cloud instance go to "Application" and click on "Service Map". You should see a few similar to the following:
+
+![](./servicemap.png)
+
+As you can see the `frontproxy`, `products` and `checkout` are reporting errors. We want to investigate the `checkout` service. Click on `it` and select "View traces" from the popup. In the "Queries" view you are now seeing set `Status = error`. Refresh the view, to limit the traces you see to the ones hat have an error. Select one of the traces in the list at the bottom of the page. In the trace waterfall view you can select the `Logs` for the span associated with the `checkout` service. When you drill into the logs you will be presented with a potential root cause. There are multiple issues ongoing, e.g.
+
+- Cart is empty
+- Internal Server Error. Please try again later.
+- ...
+
+![](./cart-is-empty.png)
+
+## Step 6: Using beyla
 
 Before we can instrument services with beyla, we need to disable the existing OpenTelemetry instrumentation. 
 For this, rename the `compose.override.yaml` to `compose.override.otel.yaml`. Next update the `products/Dockerfile`
