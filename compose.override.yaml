@@ -41,6 +41,15 @@ services:
       - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://alloy:4318/v1/logs
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 
+
+  load:
+    command: run -o experimental-opentelemetry /etc/script.js
+    environment:
+    - K6_OTEL_SERVICE_NAME=load
+    - K6_OTEL_EXPORTER_TYPE=http
+    - K6_OTEL_HTTP_EXPORTER_ENDPOINT=alloy:4318
+    - K6_OTEL_HTTP_EXPORTER_INSECURE=true
+
 volumes:
   npm_modules:
 

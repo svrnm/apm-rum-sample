@@ -406,6 +406,8 @@ There are a few additional steps we can take to optimize our configuration
 - Put credentials in `.env` file: this way you ensure that your credentials are stored separately from configuration files, and if you push your code to a public repository they are not leaked by accident.
 - Add connectors and processors to alloy: to generate additional metrics and to enable Application Observability in Grafana Cloud we add a host_info connector. To optimize the data returned by faro we add a transformprocessor that extracts fields from the log body.
 - Instrument frontend Node.JS application and load generator: both these components have not yet been instrumented. We can add OpenTelemetry to them as well!
+- Add a prometheus exporter to collect metrics from `redis`: This allows to get additional insights into the service and how it is performing
+- Enable OTel metric support for the load generator: k6 provides (experimental) OpenTelemetry support for metrics.
 
 ### Put credentials in `.env` file
 
@@ -505,6 +507,43 @@ otelcol.processor.transform "faro_helper" {
 If you compare your logs view in Grafana Cloud before and after this change, you will see that logs for the
 react frontend are no longer flowing in `unknown_service` but into `app-rum-sample`.
 
+### Add a prometheus exporter to collect metrics from `redis`
+
+We can collect metrics from the `redis` container used by `products` by adding Prometheus to `alloy` via the following configuration update:
+
+```
+prometheus.exporter.redis "redis_exporter" {
+    redis_addr = "redis:6379"
+}
+
+prometheus.scrape "prom1" {
+  targets    = prometheus.exporter.redis.redis_exporter.targets
+  forward_to = [otelcol.receiver.prometheus.p2o.receiver]
+}
+
+otelcol.receiver.prometheus "p2o" {
+  output {
+    metrics = [otelcol.exporter.otlphttp.grafana_cloud.input]
+  }
+}
+```
+
+This will add an exporter that collects metrics from `redis`. The scrape will forward those metrics to an OTel collector receiver that will turn it into OTel data that can be send to the Grafana Cloud ingestion.
+
+### Enable OTel metric support for the load generator
+
+The load generator (k6) comes with experimental OpenTelemetry support out of the box. It can be enabled by 
+adding the following additional parameters and environment variables to the `compose.override.yaml`:
+
+```
+  load:
+    command: run -o experimental-opentelemetry /etc/script.js
+    environment:
+    - K6_OTEL_SERVICE_NAME=load
+    - K6_OTEL_EXPORTER_TYPE=http
+    - K6_OTEL_HTTP_EXPORTER_ENDPOINT=alloy:4318
+    - K6_OTEL_HTTP_EXPORTER_INSECURE=true
+```
 
 ## Step 5: Using beyla
 
