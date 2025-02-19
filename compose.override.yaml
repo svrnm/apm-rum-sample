@@ -1,46 +1,46 @@
 services:
-  beyla-checkout:
-    image: grafana/beyla:latest
-    pid: "service:checkout"
-    environment:
-      - BEYLA_SERVICE_NAME=checkout
-      - BEYLA_OPEN_PORT=8003
-      - BEYLA_TRACE_PRINTER=text
-      - BEYLA_BPF_ENABLE_CONTEXT_PROPAGATION=true
-      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
-    privileged: true
-  beyla-products:
-    image: grafana/beyla:latest
-    pid: "service:products"
-    environment:
-      - BEYLA_SERVICE_NAME=products
-      - BEYLA_OPEN_PORT=8002
-      - BEYLA_TRACE_PRINTER=text
-      - BEYLA_BPF_ENABLE_CONTEXT_PROPAGATION=true
-      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
-    privileged: true
-  beyla-redis:
-    image: grafana/beyla:latest
-    pid: "service:redis"
-    environment:
-      - BEYLA_SERVICE_NAME=redis
-      - BEYLA_OPEN_PORT=6379
-      - BEYLA_TRACE_PRINTER=text
-      - BEYLA_BPF_ENABLE_CONTEXT_PROPAGATION=true
-      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
-    privileged: true
+  frontproxy:
+    depends_on:
+      - checkout
+  
+  init-npm:
+    image: node:20-alpine
+    volumes:
+      - npm_modules:/app/node_modules
+    working_dir: /app
+    command: ["npm", "install", "@opentelemetry/auto-instrumentations-node", "@opentelemetry/instrumentation-winston", "@opentelemetry/winston-transport"]
+    restart: "no"
 
-  beyla-frontproxy:
-    image: grafana/beyla:latest
-    pid: "service:frontproxy"
+
+  checkout:
+    depends_on:
+      init-npm:
+        condition: service_completed_successfully
     environment:
-      - BEYLA_SERVICE_NAME=frontproxy
-      - BEYLA_OPEN_PORT=8000
-      - BEYLA_TRACE_PRINTER=text
-      - BEYLA_BPF_ENABLE_CONTEXT_PROPAGATION=true
+      - NODE_PATH=/mnt/node_modules
+      - NODE_OPTIONS=-r "@opentelemetry/auto-instrumentations-node/register"
+      - OTEL_SERVICE_NAME=checkout
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_NODE_RESOURCE_DETECTORS=env,host,os
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
-    privileged: true
+    volumes:
+      - npm_modules:/mnt/node_modules
+
+  products:
+    environment:
+      - OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true
+      - OTEL_SERVICE_NAME=products
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://alloy:4318/v1/traces
+      - OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://alloy:4318/v1/metrics
+      - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://alloy:4318/v1/logs
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+
+volumes:
+  npm_modules:
+
